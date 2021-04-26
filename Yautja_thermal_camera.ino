@@ -77,19 +77,24 @@ void setup(void)
   while(!Serial)
     delay(10);
   Serial.begin(115200);
+  Serial.println("Started");
 #endif
+
+  setupMlx90640();
     
   oled.begin();
   oled.fillScreen(OLED_COLOR_BLACK);
-
-  setupMlx90640();
 }
+
+Temp currentTemp;
 
 void loop()
 {
-  Temp currentTemp;
+#if SERIAL_DEBUG > 0
+  Serial.println("Tick");
+#endif
 
-  //oled.fillScreen(BLACK);
+  //oled.fillScreen(OLED_COLOR_BLACK);
 
   loadTemps(currentTemp);
 #if SERIAL_DEBUG == 2

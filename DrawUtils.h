@@ -58,6 +58,24 @@ uint16_t getColorFromTemp(Adafruit_SSD1351& oled, float temp, float t_min, float
 
 void drawTempMap(Adafruit_SSD1351& oled, Temp& temp, int offsetX = 0)
 {
+#if SCREEN_ORIGINAL_DATA == 1
+  uint16_t colors[Temps_Size];
+  
+  for(int y = 0; y < Temps_Height; y++)
+  {
+    int yi = y * Temps_Width;
+    
+    for(int x = 0; x < Temps_Width; x++)
+    {
+      int i = yi + x;
+
+      // Top Left
+      colors[i] = getColorFromTemp(oled, temp.Values[i], temp.Min, temp.Max);
+    }
+  }
+  
+  oled.drawRGBBitmap(0, 0, colors, Temps_Width, Temps_Height);
+#else
   uint16_t colors[Temps_Size4];
   
   for(int y = 0; y < Temps_Height; y++)
@@ -115,4 +133,5 @@ void drawTempMap(Adafruit_SSD1351& oled, Temp& temp, int offsetX = 0)
   }
   
   oled.drawRGBBitmap(0, 0, colors, Temps_Width4, Temps_Height4);
+#endif
 }

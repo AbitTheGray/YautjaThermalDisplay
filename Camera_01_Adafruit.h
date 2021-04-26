@@ -18,13 +18,12 @@ void setupMlx90640()
 #if SERIAL_DEBUG > 0
   Serial.println("Adafruit MLX90640 Simple Test");
 #endif
-  if (!mlx.begin(MLX90640_I2CADDR_DEFAULT, &Wire))
+  while(!mlx.begin(0x33, &Wire))
   {    
 #if SERIAL_DEBUG > 0
     Serial.println("MLX90640 not found!");
 #endif
-    while(1)
-      delay(10);
+    delay(100);
   }
 #if SERIAL_DEBUG > 0
   Serial.println("Found Adafruit MLX90640");
@@ -58,7 +57,7 @@ void setupMlx90640()
   }
 #endif
 
-  mlx.setRefreshRate(MLX90640_2_HZ);
+  mlx.setRefreshRate(MLX90640_0_5_HZ);
 #if SERIAL_DEBUG > 0
   Serial.print("Current frame rate: ");
   mlx90640_refreshrate_t rate = mlx.getRefreshRate();
@@ -77,18 +76,22 @@ void setupMlx90640()
 
 void loadTemps(Temp& temp)
 {
-  if(mlx.getFrame(temp.Values) != 0)
+  int frameSuccess = mlx.getFrame(temp.Values);
+  if(frameSuccess != 0)
   {
 #if SERIAL_DEBUG > 0
-    Serial.println("Failed");
+    Serial.print("Failed with error code ");
+    Serial.println(frameSuccess);
     
     // Clear previous values
     temp.Min = TempConfig_ManualMin;
     temp.Max = TempConfig_ManualMax;
+    /*
     for(int vi = 0; vi < Temps_Size; vi++)
       temp.Values[vi] = temp.Min + (temp.Max - temp.Min) * (vi / (float)Temps_Size);
+    */
 #endif
-    return;
+    //return;
   }
 
   // Calculate min/max temperature
@@ -118,6 +121,33 @@ void loadTemps(Temp& temp)
           maxTemp = t;
       }
     }
+#if SERIAL_DEBUG > 0
+    Serial.print("Original Temp: min=");
+    Serial.print(minTemp);
+    Serial.print("; max=");
+    Serial.print(maxTemp);
+    Serial.println();
+#endif
+
+    if(maxTemp < minTemp)
+    {
+      float t = maxTemp;
+      maxTemp = minTemp;
+      minTemp = t;
+    }
+    if(maxTemp - minTemp < 2)
+    {
+      minTemp -= 0;
+      maxTemp += 1;
+    }
+
+#if SERIAL_DEBUG > 0
+    Serial.print("Result Temp: min=");
+    Serial.print(minTemp);
+    Serial.print("; max=");
+    Serial.print(maxTemp);
+    Serial.println();
+#endif
     temp.Min = minTemp;
     temp.Max = maxTemp;
   }

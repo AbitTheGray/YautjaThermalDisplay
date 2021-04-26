@@ -22,4 +22,8 @@ void loadTemps(Temp& temp)
       temp.Values[i] = random(temp.Min * 100, temp.Max * 100) / 100.0f;
     }
   }
+#if SERIAL_DEBUG > 0
+  Serial.print("1st color:");
+  Serial.println(temp.Values[0]);
+#endif
 }

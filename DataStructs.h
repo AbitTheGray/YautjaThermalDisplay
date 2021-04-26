@@ -25,11 +25,31 @@
 
 //TODO
 // Rotation of camera
-//  0 = Standard Landscape
-//  1 = Standard Portrait
-//  2 = Upside-down Landscape
-//  3 = Upside-down Portrait
+//  0 = Landscape
+//  1 = Portrait
 #define CAMERA_ROTATION 0
+
+//TODO
+#define CAMERA_FLIP_VERTICAL 0
+
+//TODO
+#define CAMERA_FLIP_HORIZONTAL 0
+
+//TODO
+// Position of color map on the screen
+//  CAMERA_ROTATION = 0 (Landscape)
+//    0 = Top edge
+//    1 = Bottom edge
+//    2 = Center (no info bar)
+//  CAMERA_ROTATION = 1 (Portrait)
+//    0 = Left edge
+//    1 = Right edge
+//    2 = Center (no info bar)
+#define CAMERA_ROTATION 0
+
+//  0 = Scale the data
+//  1 = Display only small data rectangle
+#define SCREEN_ORIGINAL_DATA 0
 
 //----------------------------------------------------------------
 // Configuration
@@ -51,7 +71,7 @@ const int Temps_Height4 = Temps_Height * 4;
 const int Temps_Size4   = Temps_Width4 * Temps_Height4;
 
 // Min/Max temperature in fixed-temp mode
-const int TempConfig_ManualMin = 15;
+const int TempConfig_ManualMin = 20;
 const int TempConfig_ManualMax = 30;
 
 // Current temperature values
