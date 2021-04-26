@@ -1,43 +1,3 @@
-// Color definitions
-#define	OLED_COLOR_BLACK           0x0000
-#define	OLED_COLOR_BLUE            0x001F
-#define	OLED_COLOR_RED             0xF800
-#define	OLED_COLOR_GREEN           0x07E0
-#define OLED_COLOR_CYAN            0x07FF
-#define OLED_COLOR_MAGENTA         0xF81F
-#define OLED_COLOR_YELLOW          0xFFE0  
-#define OLED_COLOR_WHITE           0xFFFF
-
-//----------------------------------------------------------------
-// Pragma configuration
-
-// Selection from pre-defined layouts
-//  0 = Hardware, Teensy 3.2
-//  1 = Alternate Hardware, Teensy 3.2
-// 99 = custom (rear edge of Teensy 3.2)
-#define SCREEN_PINOUT_VARIANT 99
-
-// Defines which driver for MLX90640 to use
-// May support different sensors later as long as their resolution is 32x24
-//  0 = Virtual (random data)
-//  1 = MLX90640 ( https://github.com/adafruit/Adafruit_MLX90640 )
-//  2 = MLX90640 ( https://github.com/melexis/mlx90640-library )
-#define CAMERA_TYPE 1
-
-// Debug level to Serial output
-// Uses `Serial`
-//  0 = Disabled, no debug = no Serial
-//  1 = Enabled, only main info
-//  2 = Enabled, output sensor data
-#define SERIAL_DEBUG 1
-
-//TODO
-// Rotation of camera
-//  0 = Standard Landscape
-//  1 = Standard Portrait
-//  2 = Upside-down Landscape
-//  3 = Upside-down Portrait
-#define CAMERA_ROTATION 0
 
 //----------------------------------------------------------------
 // Included headers
@@ -46,15 +6,15 @@
 #include <Adafruit_SSD1351.h>
 #include <SPI.h>
 
+#include "DataStructs.h"
+#include "DrawUtils.h"
+
 #if CAMERA_TYPE == 0
-// Virtual camera
+#include "Camera_00_Virtual.h"
 #elif CAMERA_TYPE == 1
-# include <Wire.h>
-# include <Adafruit_MLX90640.h>
+#include "Camera_01_Adafruit.h"
 #elif CAMERA_TYPE == 2
-# include <Wire.h>
-# include <MLX90640_API.h>
-# include <MLX90640_I2C_Driver.h>
+#include "Camera_02_Melexis.h"
 #else
 # warning "Unimplemented camera type"
 # define CAMERA_TYPE 0
@@ -91,60 +51,25 @@ const int Screen_Height = 128; // Change this to 96 for 1.27" OLED, won't displa
   const int Screen_Pin_RST  = 16; // Reset (optional = -1)
 #else
 # error "No pinout selected"
-#endif  
-
-// Input temperature
-const int Temps_Width  = 32;
-const int Temps_Height = 24;
-const int Temps_Size   = Temps_Width * Temps_Height;
-
-// Displayed temperature (do not alter)
-const int Temps_Width4  = Temps_Width * 4;
-const int Temps_Height4 = Temps_Height * 4;
-const int Temps_Size4   = Temps_Width4 * Temps_Height4;
-
-// Min/Max temperature in fixed-temp mode
-const int TempConfig_ManualMin = 15;
-const int TempConfig_ManualMax = 30;
-
-// Display configuration
-const bool Config_ManualTemp = false;
-
-// Current temperature values
-struct Temp
-{
-  float Values[Temps_Size];
-  float Min = TempConfig_ManualMin;
-  float Max = TempConfig_ManualMax;
-};
-
-#if CAMERA_TYPE == 1
-  Adafruit_MLX90640 mlx;
-#endif
-
-#if CAMERA_TYPE == 2
-  const byte MLX90640_address = 0x33; //Default 7-bit unshifted address of the MLX90640
-  #define TA_SHIFT 8 //Default shift for MLX90640 in open air
-  
-  paramsMLX90640 mlx90640;
-
-  // 0x00 - 0.25Hz effective - Works
-  // 0x01 - 0.5Hz effective - Works
-  // 0x02 - 1Hz effective - Works
-  // 0x03 - 2Hz effective - Works
-  // 0x04 - 4Hz effective - Works
-  // 0x05 - 8Hz effective - Works at 800kHz
-  // 0x06 - 16Hz effective - Works at 800kHz
-  // 0x07 - 32Hz effective - fails
-  const uint8_t Mlx90640_FrequencyIndex = 0x04;
 #endif
 
 //----------------------------------------------------------------
 // Global variables
 
+// Color definitions
+#define OLED_COLOR_BLACK           0x0000
+#define OLED_COLOR_BLUE            0x001F
+#define OLED_COLOR_RED             0xF800
+#define OLED_COLOR_GREEN           0x07E0
+#define OLED_COLOR_CYAN            0x07FF
+#define OLED_COLOR_MAGENTA         0xF81F
+#define OLED_COLOR_YELLOW          0xFFE0  
+#define OLED_COLOR_WHITE           0xFFFF
+
 Adafruit_SSD1351 oled = Adafruit_SSD1351(Screen_Width, Screen_Height, Screen_Pin_CS, Screen_Pin_DC, Screen_Pin_MOSI, Screen_Pin_CLK, Screen_Pin_RST);
 
-Temp CurrentTemp;
+//----------------------------------------------------------------
+// Functions
 
 void setup(void)
 {
@@ -160,358 +85,33 @@ void setup(void)
   setupMlx90640();
 }
 
-void loadTemps(Temp& temp)
-{
-#if CAMERA_TYPE == 0
-  // Random data
-  for(int y = 0; y < Temps_Height; y++)
-  {
-    int yi = y * Temps_Width;
-    for(int x = 0; x < Temps_Width; x++)
-    {
-      int i = yi + x;
-
-      temp.Values[i] = random(temp.Min * 100, temp.Max * 100) / 100.0f;
-    }
-  }
-#elif CAMERA_TYPE == 1
-  if(mlx.getFrame(temp.Values) != 0)
-  {
-#if SERIAL_DEBUG > 0
-    Serial.println("Failed");
-    // Clear previous values
-    for(int vi = 0; vi < Temps_Size; vi++)
-      temp.Values[vi] = temp.Min + (temp.Max - temp.Min) * (vi / (float)Temps_Size);
-#endif
-    return;
-  }
-#elif CAMERA_TYPE == 2
-  for (byte x = 0; x < 2; x++) //Read both subpages
-  {
-    uint16_t mlx90640Frame[834];
-    int status = MLX90640_GetFrameData(MLX90640_address, mlx90640Frame);
-  
-#if SERIAL_DEBUG > 0
-    if (status < 0)
-    {
-      Serial.print("GetFrame Error: ");
-      Serial.println(status);
-    }
-#endif
-
-    float vdd = MLX90640_GetVdd(mlx90640Frame, &mlx90640);
-    float Ta = MLX90640_GetTa(mlx90640Frame, &mlx90640);
-
-    float tr = Ta - TA_SHIFT; //Reflected temperature based on the sensor ambient temperature
-    float emissivity = 0.95;
-
-    MLX90640_CalculateTo(mlx90640Frame, &mlx90640, emissivity, tr, mlx90640To);
-  }
-   
-  // determine T_min and T_max and eliminate error pixels
-  // ====================================================
-
-  mlx90640To[1*32 + 21] = 0.5 * (mlx90640To[1*32 + 20] + mlx90640To[1*32 + 22]);    // eliminate the error-pixels
-  mlx90640To[4*32 + 30] = 0.5 * (mlx90640To[4*32 + 29] + mlx90640To[4*32 + 31]);    // eliminate the error-pixels
-  
-  T_min = mlx90640To[0];
-  T_max = mlx90640To[0];
-
-  for (i = 1; i < 768; i++)
-  {
-    if((mlx90640To[i] > -41) && (mlx90640To[i] < 301))
-    {
-      if(mlx90640To[i] < T_min)
-        T_min = mlx90640To[i];
-
-      if(mlx90640To[i] > T_max)
-        T_max = mlx90640To[i];
-    }
-    else if(i > 0)   // temperature out of range
-      mlx90640To[i] = mlx90640To[i-1];
-    else
-      mlx90640To[i] = mlx90640To[i+1];
-  }
-#else
-# warning "Unimplemented camera type"
-#endif
-}
-
 void loop()
 {
+  Temp currentTemp;
+
   //oled.fillScreen(BLACK);
 
-  loadTemps(CurrentTemp);
+  loadTemps(currentTemp);
 #if SERIAL_DEBUG == 2
   //TODO Print CurrentTemp to Serial
 #endif
   
   if(Config_ManualTemp)
   {
-    CurrentTemp.Min = TempConfig_ManualMin;
-    CurrentTemp.Max = TempConfig_ManualMax;
+    currentTemp.Min = TempConfig_ManualMin;
+    currentTemp.Max = TempConfig_ManualMax;
   }
 
-  drawMap(CurrentTemp);
+  drawMap(currentTemp);
 
   //delay(500);
-}
-
-#if CAMERA_TYPE == 0
-void setupMlx90640() {}
-#endif
-
-#if CAMERA_TYPE == 1
-void setupMlx90640()
-{  
-#if SERIAL_DEBUG > 0
-  Serial.println("Adafruit MLX90640 Simple Test");
-#endif
-  if (!mlx.begin(MLX90640_I2CADDR_DEFAULT, &Wire))
-  {    
-#if SERIAL_DEBUG > 0
-    Serial.println("MLX90640 not found!");
-#endif
-    while(1)
-      delay(10);
-  }
-#if SERIAL_DEBUG > 0
-  Serial.println("Found Adafruit MLX90640");
-
-  Serial.print("Serial number: ");
-  Serial.print(mlx.serialNumber[0], HEX);
-  Serial.print(mlx.serialNumber[1], HEX);
-  Serial.println(mlx.serialNumber[2], HEX);
-#endif
-  
-  //mlx.setMode(MLX90640_INTERLEAVED);
-  mlx.setMode(MLX90640_CHESS);
-#if SERIAL_DEBUG > 0
-  Serial.print("Current mode: ");
-  if (mlx.getMode() == MLX90640_CHESS) {
-    Serial.println("Chess");
-  } else {
-    Serial.println("Interleave");    
-  }
-#endif
-
-  mlx.setResolution(MLX90640_ADC_18BIT);
-#if SERIAL_DEBUG > 0
-  Serial.print("Current resolution: ");
-  mlx90640_resolution_t res = mlx.getResolution();
-  switch (res) {
-    case MLX90640_ADC_16BIT: Serial.println("16 bit"); break;
-    case MLX90640_ADC_17BIT: Serial.println("17 bit"); break;
-    case MLX90640_ADC_18BIT: Serial.println("18 bit"); break;
-    case MLX90640_ADC_19BIT: Serial.println("19 bit"); break;
-  }
-#endif
-
-  mlx.setRefreshRate(MLX90640_2_HZ);
-#if SERIAL_DEBUG > 0
-  Serial.print("Current frame rate: ");
-  mlx90640_refreshrate_t rate = mlx.getRefreshRate();
-  switch (rate) {
-    case MLX90640_0_5_HZ: Serial.println("0.5 Hz"); break;
-    case MLX90640_1_HZ: Serial.println("1 Hz"); break; 
-    case MLX90640_2_HZ: Serial.println("2 Hz"); break;
-    case MLX90640_4_HZ: Serial.println("4 Hz"); break;
-    case MLX90640_8_HZ: Serial.println("8 Hz"); break;
-    case MLX90640_16_HZ: Serial.println("16 Hz"); break;
-    case MLX90640_32_HZ: Serial.println("32 Hz"); break;
-    case MLX90640_64_HZ: Serial.println("64 Hz"); break;
-  }
-#endif
-}
-#endif
-
-#if CAMERA_TYPE == 2
-/// Returns true if the MLX90640 is detected on the I2C bus
-boolean isMlx90640Connected()
-{
-  Wire.beginTransmission((uint8_t)MLX90640_address);
-  
-  if (Wire.endTransmission() != 0)
-     return false; //Sensor did not ACK
-  
-  return true;
-}  
-
-void setupMlx90640()
-{
-#if CAMERA_TYPE == 2
-  Wire.begin();
-  if(Mlx90640_FrequencyIndex >= 0x05) // 8Hz
-    Wire.setClock(800'000); //Increase I2C clock speed to 800kHz
-  else
-    Wire.setClock(400'000); //Increase I2C clock speed to 400kHz
-#endif
-
-  if (isMlx90640Connected() == false)
-  {
-#if SERIAL_DEBUG > 0
-    Serial.println("MLX90640 not detected at default I2C address. Please check wiring. Freezing.");
-#endif
-    while (1);
-  }
-     
-#if SERIAL_DEBUG > 0
-  Serial.println("MLX90640 online!");
-#endif
-
-  //Get device parameters - We only have to do this once
-  int status;
-  uint16_t eeMLX90640[832];
-  
-  status = MLX90640_DumpEE(MLX90640_address, eeMLX90640);
-
-#if SERIAL_DEBUG > 0
-  if(status != 0)
-    Serial.println("Failed to load system parameters");
-#endif
-
-  status = MLX90640_ExtractParameters(eeMLX90640, &mlx90640);
-
-#if SERIAL_DEBUG > 0
-  if(status != 0)
-  {
-    Serial.println("Parameter extraction failed");
-    Serial.print(" status = ");
-    Serial.println(status);
-  }
-#endif
-
-  //Once params are extracted, we can release eeMLX90640 array
-
-  MLX90640_I2CWrite(0x33, 0x800D, 6401);    // writes the value 1901 (HEX) = 6401 (DEC) in the register at position 0x800D to enable reading out the temperatures!!!
-  // ===============================================================================================================================================================
-
-  //MLX90640_SetRefreshRate(MLX90640_address, 0x00); //Set rate to 0.25Hz effective - Works
-  //MLX90640_SetRefreshRate(MLX90640_address, 0x01); //Set rate to 0.5Hz effective - Works
-  //MLX90640_SetRefreshRate(MLX90640_address, 0x02); //Set rate to 1Hz effective - Works
-  //MLX90640_SetRefreshRate(MLX90640_address, 0x03); //Set rate to 2Hz effective - Works
-  MLX90640_SetRefreshRate(MLX90640_address, 0x04); //Set rate to 4Hz effective - Works
-  //MLX90640_SetRefreshRate(MLX90640_address, 0x05); //Set rate to 8Hz effective - Works at 800kHz
-  //MLX90640_SetRefreshRate(MLX90640_address, 0x06); //Set rate to 16Hz effective - Works at 800kHz
-  //MLX90640_SetRefreshRate(MLX90640_address, 0x07); //Set rate to 32Hz effective - fails
-}
-#endif
-
-uint16_t getColorFromTemp(float temp, float t_min, float t_max)
-{
-  float range = 180.0 * (temp - t_min) / (t_max - t_min);
-
-  if(range < 0)
-    return oled.color565(0, 0, 0);
-  
-  if(range >= 0 && range < 30)
-    return oled.color565(
-      0,
-      0,
-      20 + (120.0/30.0) * range
-    );
-  
-  if(range >= 30 && range < 60)
-    return oled.color565(
-      (120.0 / 30) * (range - 30.0),
-      0,
-      140 - (60.0/30.0) * (range - 30.0)
-    );
-  
-  if(range >= 60 && range < 90)
-    return oled.color565(
-      120 + (135.0/30.0) * (range - 60.0),
-      0,
-      80 - (70.0/30.0) * (range - 60.0)
-    );
-  
-  if (range >= 90 && range < 120)
-    return oled.color565(
-      255,
-      0 + (60.0/30.0) * (range - 90.0),
-      10 - (10.0/30.0) * (range - 90.0)
-    );
-  
-  if (range >= 120 && range < 150)
-    return oled.color565(
-      255,
-      60 + (175.0/30.0) * (range - 120.0),
-      0
-    );
-  
-  if (range >= 150 && range <= 180)
-    return oled.color565(
-      255,
-      235 + (20.0/30.0) * (range - 150.0),
-      0 + 255.0/30.0 * (range - 150.0)
-    );
-
-  return oled.color565(255, 255, 255);
 }
         
 void drawMap(Temp& temp)
 {
   // Temp map
   // height: 96
-  {
-    uint16_t colors[Temps_Size4];
-    
-    for(int y = 0; y < Temps_Height; y++)
-    {
-      int yi = y * Temps_Width;
-      int yi_prev = (y > 0 ? y-1 : 0) * Temps_Width;
-
-      int cy = y * 4;
-
-      int cyi_0 = (cy + 0) * Temps_Width4;
-      int cyi_1 = (cy + 1) * Temps_Width4;
-      int cyi_2 = (cy + 2) * Temps_Width4;
-      int cyi_3 = (cy + 3) * Temps_Width4;
-      
-      for(int x = 0; x < Temps_Width; x++)
-      {
-        int i = yi + x;
-        int i_prev = yi_prev + x;
-
-        int cx = x * 4;
-        
-        float t00 = temp.Values[i_prev - (x > 0 ? 1 : 0)];
-        float t01 = temp.Values[i - (x > 0 ? 1 : 0)];
-        float t10 = temp.Values[i_prev];
-        float t11 = temp.Values[i];
-
-        // Top Left
-        uint16_t c = getColorFromTemp((t00 + t01 + t10 + t11) / 4.0f, temp.Min, temp.Max);
-        colors[cyi_0 + cx + 0] = c;
-        colors[cyi_0 + cx + 1] = c;
-        colors[cyi_1 + cx + 0] = c;
-        colors[cyi_1 + cx + 1] = c;
-
-        // Left
-        c = getColorFromTemp((t01 + t11) / 2.0f, temp.Min, temp.Max);
-        colors[cyi_2 + cx + 0] = c;
-        colors[cyi_2 + cx + 1] = c;
-        colors[cyi_3 + cx + 0] = c;
-        colors[cyi_3 + cx + 1] = c;
-
-        // Top
-        c = getColorFromTemp((t10 + t11) / 2.0f, temp.Min, temp.Max);
-        colors[cyi_0 + cx + 2] = c;
-        colors[cyi_0 + cx + 3] = c;
-        colors[cyi_1 + cx + 2] = c;
-        colors[cyi_1 + cx + 3] = c;
-
-        // Original
-        c = getColorFromTemp(t11, temp.Min, temp.Max);
-        colors[cyi_2 + cx + 2] = c;
-        colors[cyi_2 + cx + 3] = c;
-        colors[cyi_3 + cx + 2] = c;
-        colors[cyi_3 + cx + 3] = c;
-      }
-    }
-    
-    oled.drawRGBBitmap(0, 0, colors, Temps_Width4, Temps_Height4);
-  }
+  drawTempMap(oled, temp, 0);
 
   // Info
   if(Screen_Height > 96)
@@ -532,6 +132,7 @@ void drawMap(Temp& temp)
           1,
           sizeY,
           getColorFromTemp(
+            oled, 
             temp.Min + (temp.Max - temp.Min) * (x / (float)sizeX),
             temp.Min,
             temp.Max
@@ -539,7 +140,7 @@ void drawMap(Temp& temp)
         );
       }
 
-      // t_min
+      // Minimum temperature
       {
         oled.drawChar(
           offsetX - 32, 
@@ -575,7 +176,7 @@ void drawMap(Temp& temp)
         );
       }
 
-      // t_max
+      // Maximum temperature
       {
         oled.drawChar(
           offsetX + sizeX + 4, 
