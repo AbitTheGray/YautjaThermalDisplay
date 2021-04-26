@@ -11,22 +11,32 @@
 //----------------------------------------------------------------
 // Pragma configuration
 
+// Selection from pre-defined layouts
 //  0 = Hardware, Teensy 3.2
 //  1 = Alternate Hardware, Teensy 3.2
-// 99 = custom (back side)
+// 99 = custom (rear edge of Teensy 3.2)
 #define SCREEN_PINOUT_VARIANT 99
 
+// Defines which driver for MLX90640 to use
+// May support different sensors later as long as their resolution is 32x24
 //  0 = Virtual (random data)
 //  1 = MLX90640 ( https://github.com/adafruit/Adafruit_MLX90640 )
 //  2 = MLX90640 ( https://github.com/melexis/mlx90640-library )
 #define CAMERA_TYPE 1
 
-//  0 = Disabled, no debug
+// Debug level to Serial output
+// Uses `Serial`
+//  0 = Disabled, no debug = no Serial
 //  1 = Enabled, only main info
 //  2 = Enabled, output sensor data
 #define SERIAL_DEBUG 1
 
 //TODO
+// Rotation of camera
+//  0 = Standard Landscape
+//  1 = Standard Portrait
+//  2 = Upside-down Landscape
+//  3 = Upside-down Portrait
 #define CAMERA_ROTATION 0
 
 //----------------------------------------------------------------
@@ -36,15 +46,15 @@
 #include <Adafruit_SSD1351.h>
 #include <SPI.h>
 
-#if CAMERA_TYPE == 1
+#if CAMERA_TYPE == 0
+// Virtual camera
+#elif CAMERA_TYPE == 1
 # include <Wire.h>
 # include <Adafruit_MLX90640.h>
 #elif CAMERA_TYPE == 2
 # include <Wire.h>
 # include <MLX90640_API.h>
 # include <MLX90640_I2C_Driver.h>
-#elif CAMERA_TYPE == 0
-# define CAMERA_TYPE 0
 #else
 # warning "Unimplemented camera type"
 # define CAMERA_TYPE 0
@@ -117,6 +127,16 @@ struct Temp
   #define TA_SHIFT 8 //Default shift for MLX90640 in open air
   
   paramsMLX90640 mlx90640;
+
+  // 0x00 - 0.25Hz effective - Works
+  // 0x01 - 0.5Hz effective - Works
+  // 0x02 - 1Hz effective - Works
+  // 0x03 - 2Hz effective - Works
+  // 0x04 - 4Hz effective - Works
+  // 0x05 - 8Hz effective - Works at 800kHz
+  // 0x06 - 16Hz effective - Works at 800kHz
+  // 0x07 - 32Hz effective - fails
+  const uint8_t Mlx90640_FrequencyIndex = 0x04;
 #endif
 
 //----------------------------------------------------------------
@@ -136,11 +156,8 @@ void setup(void)
     
   oled.begin();
   oled.fillScreen(OLED_COLOR_BLACK);
-      
-#if CAMERA_TYPE == 1
-  Wire.begin();
-  Wire.setClock(400000); //Increase I2C clock speed to 400kHz
-#endif
+
+  setupMlx90640();
 }
 
 void loadTemps(Temp& temp)
@@ -169,7 +186,52 @@ void loadTemps(Temp& temp)
     return;
   }
 #elif CAMERA_TYPE == 2
-  // MLX90640
+  for (byte x = 0; x < 2; x++) //Read both subpages
+  {
+    uint16_t mlx90640Frame[834];
+    int status = MLX90640_GetFrameData(MLX90640_address, mlx90640Frame);
+  
+#if SERIAL_DEBUG > 0
+    if (status < 0)
+    {
+      Serial.print("GetFrame Error: ");
+      Serial.println(status);
+    }
+#endif
+
+    float vdd = MLX90640_GetVdd(mlx90640Frame, &mlx90640);
+    float Ta = MLX90640_GetTa(mlx90640Frame, &mlx90640);
+
+    float tr = Ta - TA_SHIFT; //Reflected temperature based on the sensor ambient temperature
+    float emissivity = 0.95;
+
+    MLX90640_CalculateTo(mlx90640Frame, &mlx90640, emissivity, tr, mlx90640To);
+  }
+   
+  // determine T_min and T_max and eliminate error pixels
+  // ====================================================
+
+  mlx90640To[1*32 + 21] = 0.5 * (mlx90640To[1*32 + 20] + mlx90640To[1*32 + 22]);    // eliminate the error-pixels
+  mlx90640To[4*32 + 30] = 0.5 * (mlx90640To[4*32 + 29] + mlx90640To[4*32 + 31]);    // eliminate the error-pixels
+  
+  T_min = mlx90640To[0];
+  T_max = mlx90640To[0];
+
+  for (i = 1; i < 768; i++)
+  {
+    if((mlx90640To[i] > -41) && (mlx90640To[i] < 301))
+    {
+      if(mlx90640To[i] < T_min)
+        T_min = mlx90640To[i];
+
+      if(mlx90640To[i] > T_max)
+        T_max = mlx90640To[i];
+    }
+    else if(i > 0)   // temperature out of range
+      mlx90640To[i] = mlx90640To[i-1];
+    else
+      mlx90640To[i] = mlx90640To[i+1];
+  }
 #else
 # warning "Unimplemented camera type"
 #endif
@@ -194,6 +256,10 @@ void loop()
 
   //delay(500);
 }
+
+#if CAMERA_TYPE == 0
+void setupMlx90640() {}
+#endif
 
 #if CAMERA_TYPE == 1
 void setupMlx90640()
@@ -273,6 +339,14 @@ boolean isMlx90640Connected()
 
 void setupMlx90640()
 {
+#if CAMERA_TYPE == 2
+  Wire.begin();
+  if(Mlx90640_FrequencyIndex >= 0x05) // 8Hz
+    Wire.setClock(800'000); //Increase I2C clock speed to 800kHz
+  else
+    Wire.setClock(400'000); //Increase I2C clock speed to 400kHz
+#endif
+
   if (isMlx90640Connected() == false)
   {
 #if SERIAL_DEBUG > 0
@@ -435,14 +509,12 @@ void drawMap(Temp& temp)
         colors[cyi_3 + cx + 3] = c;
       }
     }
-
-    //for(int i = 0; i < Temps_Size4; i++)
-    //  colors[i] = WHITE;
     
     oled.drawRGBBitmap(0, 0, colors, Temps_Width4, Temps_Height4);
   }
 
   // Info
+  if(Screen_Height > 96)
   {
     // Scale
     {
